@@ -239,6 +239,11 @@ def load_config():
         "chronicle": cfg.get("chronicle", True),
         # Wake-word dictation only types into fields IBus confirms non-secure
         "wake_word_secure_gate": cfg.get("wake_word_secure_gate", False),
+        # Quiet hours (gnome-speaks): agent speech via POST /speak is refused
+        # inside the window; HH:MM local, overnight windows allowed.
+        "quiet_hours": cfg.get("quiet_hours", False),
+        "quiet_hours_start": cfg.get("quiet_hours_start", "22:00"),
+        "quiet_hours_end": cfg.get("quiet_hours_end", "08:00"),
         # User-authored word corrections — read by gnome-speaks
         # apply_auto_corrections(); was unwhitelisted, so every user's
         # corrections silently never applied (prefs-audit finding #1).
