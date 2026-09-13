@@ -67,6 +67,16 @@ EC_SINK = "echo_cancel_sink"      # TTS audio routes here so AEC can subtract it
 SILENCE_TIMEOUT = 3.0
 NO_SPEECH_TIMEOUT = 7.0
 MIN_SPEECH_DURATION = 0.15
+# Live partials on the Wyoming VAD route (gnome-speaks live typing/subtitles):
+# the LAN recognizer has no streaming protocol (wyoming-onnx-asr reports
+# supports_transcript_streaming=False), so the utterance so far is re-sent
+# every PARTIAL_INTERVAL_MS of speech and the answer is a hypothesis. Measured
+# 2026-09-12 on Parakeet TDT 0.6B: 2.8 s of speech -> 0.15 s, 5.6 s -> 0.26 s;
+# some short clips never answer (1.4 s hung past 20 s) while other requests
+# are still served, hence the per-request timeout -- a hung partial is dropped,
+# never the final transcription, which uses its own connection.
+PARTIAL_INTERVAL_MS = 400
+PARTIAL_TIMEOUT = 2.5
 VAD_AGGRESSIVENESS = 3
 ENERGY_CALIBRATION_FRAMES = 5
 ENERGY_THRESHOLD_MULTIPLIER = 2.5
