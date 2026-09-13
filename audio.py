@@ -651,7 +651,7 @@ def _classify_voice_cmd(raw_frames):
 # Recording with VAD
 # ---------------------------------------------------------------------------
 
-def record_with_vad(proc, max_seconds, stop_when=None):
+def record_with_vad(proc, max_seconds, stop_when=None, on_audio=None):
     """Record with energy-gated VAD, returning (raw_frames, energy_threshold).
 
     Two ways to end early, and they mean different things:
@@ -662,6 +662,13 @@ def record_with_vad(proc, max_seconds, stop_when=None):
                       tap in loop mode: without it a batch (VAD) recording ran
                       on until silence or max_seconds, and a tap looked ignored
                       (gnome-speaks #110).
+
+    on_audio(frames)  an optional observer of the utterance SO FAR: called on
+                      the recording thread every PARTIAL_INTERVAL_MS once speech
+                      has been heard, with the live frame list (read it, do not
+                      keep it -- the recorder appends to it). It is how the
+                      Wyoming route grows live partials (stt_vad partial_cb);
+                      it must return quickly and never raise.
     """
     energy_threshold, calibration_frames = calibrate_noise(proc)
     vad = state.webrtcvad.Vad(state.VAD_AGGRESSIVENESS) if state.HAS_VAD else None
@@ -672,6 +679,8 @@ def record_with_vad(proc, max_seconds, stop_when=None):
     max_no_speech = int(state.NO_SPEECH_TIMEOUT * 1000 / state.FRAME_MS)
     min_speech = int(state.MIN_SPEECH_DURATION * 1000 / state.FRAME_MS)
     max_frames = int(max_seconds * 1000 / state.FRAME_MS)
+    partial_every = max(1, int(state.PARTIAL_INTERVAL_MS / state.FRAME_MS))
+    since_partial = 0
     total_frames = 0
 
     for _ in range(max_frames):
@@ -689,6 +698,11 @@ def record_with_vad(proc, max_seconds, stop_when=None):
             silence_frames = 0
         else:
             silence_frames += 1
+        if on_audio is not None and speech_frames > 0:
+            since_partial += 1
+            if since_partial >= partial_every:
+                since_partial = 0
+                on_audio(frames)
         if speech_frames >= min_speech and silence_frames >= max_silence:
             break
         if speech_frames == 0 and total_frames >= max_no_speech:

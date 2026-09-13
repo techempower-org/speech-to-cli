@@ -533,10 +533,82 @@ def stt_streaming(max_seconds=30, progress_token=None):
             return {"error": str(e)}
 
 
-def stt_vad(max_seconds=30, progress_token=None, stop_when=None):
-    """Record with energy-gated VAD, stop on silence (or stop_when), upload via REST."""
+class _PartialTranscriber:
+    """Live partials for the Wyoming route of stt_vad (gnome-speaks live typing).
+
+    The LAN recognizer has no streaming protocol, so the utterance so far is
+    re-transcribed from a side thread and each answer is a hypothesis. One
+    request in flight, newest audio wins (a one-slot mailbox, the same shape
+    as gnome-speaks' _LiveTyper): the recorder drops the live frame list here
+    every PARTIAL_INTERVAL_MS, and if a request is still running the snapshot
+    is simply replaced. Each request carries PARTIAL_TIMEOUT: measured on
+    2026-09-12, some short clips never get an answer while the server keeps
+    serving other connections, so a hung partial costs one timeout and
+    nothing else -- it is never mark_local_down() (the server is not down)
+    and it never delays the final transcription, which opens its own socket.
+    partial_cb(text) runs on this thread; the caller makes it thread-safe.
+    """
+
+    def __init__(self, host, port, partial_cb, timeout):
+        self._host, self._port, self._cb, self._timeout = host, port, partial_cb, timeout
+        self._cv = threading.Condition()
+        self._pending = None
+        self._closed = False
+        self._last = ""
+        self.requests = 0          # observability for the repro
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="vad-partials")
+        self._thread.start()
+
+    def submit(self, frames):
+        """record_with_vad's on_audio: snapshot the utterance so far."""
+        pcm = b"".join(frames)
+        with self._cv:
+            self._pending = pcm
+            self._cv.notify()
+
+    def close(self, timeout=0.2):
+        """Stop taking snapshots. Does not wait out a hung request: the thread
+        is a daemon and the final transcription does not depend on it."""
+        with self._cv:
+            self._closed = True
+            self._pending = None
+            self._cv.notify()
+        self._thread.join(timeout)
+
+    def _run(self):
+        while True:
+            with self._cv:
+                while self._pending is None and not self._closed:
+                    self._cv.wait()
+                if self._closed:
+                    return
+                pcm, self._pending = self._pending, None
+            self.requests += 1
+            try:
+                text = wyoming.transcribe(self._host, self._port, pcm,
+                                          rate=16000, timeout=self._timeout)
+            except Exception:
+                continue           # a dropped hypothesis, nothing more
+            if text and text != self._last:
+                self._last = text
+                try:
+                    self._cb(text)
+                except Exception:
+                    pass
+
+
+def stt_vad(max_seconds=30, progress_token=None, stop_when=None, partial_cb=None):
+    """Record with energy-gated VAD, stop on silence (or stop_when), upload via REST.
+
+    partial_cb(text): optional live hypotheses while recording -- only on the
+    Wyoming route (skip_azure()), where they are re-transcriptions of the
+    utterance so far (_PartialTranscriber). The Azure REST route has no live
+    partials (streaming is the live Azure path) and never calls it.
+    """
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
+    partials = None
     try:
         play_chime()
         send_progress(progress_token, 10, 100, "🎤 Listening...")
@@ -548,7 +620,14 @@ def stt_vad(max_seconds=30, progress_token=None, stop_when=None):
             )
         register_proc(proc)
 
-        frames, _ = record_with_vad(proc, max_seconds, stop_when=stop_when)
+        if partial_cb is not None and wyoming.skip_azure() and CONFIG.get("wyoming_host"):
+            partials = _PartialTranscriber(
+                CONFIG["wyoming_host"], int(CONFIG.get("wyoming_stt_port", 10300)),
+                partial_cb, timeout=state.PARTIAL_TIMEOUT)
+        frames, _ = record_with_vad(proc, max_seconds, stop_when=stop_when,
+                                    on_audio=partials.submit if partials else None)
+        if partials is not None:
+            partials.close()
         proc.terminate()
         proc.wait()
         unregister_proc(proc)
@@ -740,7 +819,7 @@ def stt_fixed(seconds=5, progress_token=None):
 
 
 def stt(seconds=None, mode=None, silence_timeout=None, vad_aggressiveness=None,
-        energy_multiplier=None, progress_token=None, stop_when=None):
+        energy_multiplier=None, progress_token=None, stop_when=None, partial_cb=None):
     """Speech-to-text with automatic mode selection.
 
     stop_when: optional predicate; when it turns true the batch (VAD)
@@ -748,6 +827,9 @@ def stt(seconds=None, mode=None, silence_timeout=None, vad_aggressiveness=None,
     hotkey / loop-mode badge tap. Distinct from the cancel wire, which
     abandons. Honoured by the vad mode; streaming has its own stop path and
     fixed-length recording cannot be cut short without corrupting the WAV.
+
+    partial_cb(text): live hypotheses while recording, vad mode on the
+    Wyoming route only (see stt_vad). Called from a worker thread.
     """
     max_seconds = max(1, min(int(seconds or 30), 30))
 
@@ -778,7 +860,7 @@ def stt(seconds=None, mode=None, silence_timeout=None, vad_aggressiveness=None,
                 result = stt_whisper(max_seconds, progress_token=progress_token)
             elif mode == "vad" and HAS_VAD:
                 result = stt_vad(max_seconds, progress_token=progress_token,
-                                 stop_when=stop_when)
+                                 stop_when=stop_when, partial_cb=partial_cb)
             else:
                 result = stt_fixed(max_seconds, progress_token=progress_token)
 
