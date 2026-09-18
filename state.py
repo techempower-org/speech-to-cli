@@ -244,6 +244,9 @@ def load_config():
         "quiet_hours": cfg.get("quiet_hours", False),
         "quiet_hours_start": cfg.get("quiet_hours_start", "22:00"),
         "quiet_hours_end": cfg.get("quiet_hours_end", "08:00"),
+        # Call mute (gnome-speaks): all speech output held while another app
+        # holds the microphone or camera. Default ON.
+        "mute_on_call": cfg.get("mute_on_call", True),
         # User-authored word corrections — read by gnome-speaks
         # apply_auto_corrections(); was unwhitelisted, so every user's
         # corrections silently never applied (prefs-audit finding #1).
