@@ -211,6 +211,8 @@ def load_config():
         "speaker_sink": cfg.get("speaker_sink", None),
         "silence_timeout": cfg.get("silence_timeout", SILENCE_TIMEOUT),
         "talk_silence_timeout": cfg.get("talk_silence_timeout", 4.0),
+        # Longest a Talk() D-Bus call records, from the start of the question (gnome-speaks #198)
+        "talk_max_seconds": cfg.get("talk_max_seconds", 120),
         "no_speech_timeout": cfg.get("no_speech_timeout", NO_SPEECH_TIMEOUT),
         "energy_multiplier": cfg.get("energy_multiplier", ENERGY_THRESHOLD_MULTIPLIER),
         # UI settings
