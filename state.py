@@ -180,28 +180,22 @@ def _normalise_phrase_list(value):
 
 # Claude is never called through a cloud marketplace: Bedrock, Vertex and Azure Foundry
 # bill it as Marketplace, which no credit covers (JP 2026-11-09). Claude goes through
-# teamclaude (or direct) only. A name cannot prove what a marketplace serves (a Foundry
-# deployment or a Bedrock inference profile can be called anything), so the rule is an
-# allowlist: Bedrock and Vertex are refused outright (this app has no other use for them),
-# and Azure/Foundry only for first-party OpenAI deployments (gpt-*, o<digit>*). A refused
-# config is answered by the local LLM and its key is not passed on. gnome-speaks calls
-# this at the moment it builds a request too, because a live prefs edit reaches its
+# teamclaude (or direct) only. A name cannot prove what a multi-vendor host serves (a
+# Foundry deployment or a Bedrock inference profile can be called anything), so every
+# provider that can host Claude is refused outright; this app uses none of them (the fleet
+# speaks through "local"). A Claude-named model is allowed on "anthropic" (direct) only.
+# A refused config is answered by the local LLM and its key is not passed on. gnome-speaks
+# calls this at the moment it builds a request too, because a live prefs edit reaches its
 # CONFIG without passing through load_config().
-MARKETPLACE_PROVIDERS = frozenset({"bedrock", "vertex", "azure", "foundry"})
+MARKETPLACE_PROVIDERS = frozenset({"bedrock", "vertex", "azure", "foundry", "digitalocean", "puter", "openrouter"})
 LOCAL_LLM_FALLBACK = "qwen36-coder"
-_FIRST_PARTY_AZURE = re.compile(r"^(gpt-|o[0-9])", re.I)
 _CLAUDE_WORD = re.compile(r"claude|anthropic", re.I)
 
 
 def llm_policy(provider, model, api_key=""):
     """Return (provider, model, api_key, refused) for one LLM call."""
-    p, m = str(provider or "").strip().lower(), str(model or "").strip()
-    if p in ("bedrock", "vertex"):
-        refused = True
-    elif p in ("azure", "foundry"):
-        refused = not _FIRST_PARTY_AZURE.match(m) or bool(_CLAUDE_WORD.search(m))
-    else:
-        refused = False
+    p, m = str(provider or "").strip().lower(), str(model or "")
+    refused = p in MARKETPLACE_PROVIDERS or (p != "anthropic" and bool(_CLAUDE_WORD.search(m)))
     return ("local", LOCAL_LLM_FALLBACK, "", True) if refused else (provider, model, api_key, False)
 
 

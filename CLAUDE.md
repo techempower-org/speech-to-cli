@@ -136,7 +136,7 @@ Config loaded from env vars → `~/.config/speech-to-cli/config.json`. All chang
 **Chimes**: `chime_ready` (true), `chime_processing`, `chime_speak`, `chime_done`, `chime_hum`, `chime_barge_in` (true)
 **UI**: `visual_indicator`, `live_subtitles`, `subtitle_color_user`, `subtitle_color_tts`, `vu_meter`
 **Experimental**: `enable_echo_cancel`, `enable_barge_in`, `barge_in_frames` (3), `barge_in_silence` (1.0), `debug`
-**Standalone/LLM**: `llm_provider`, `llm_model`, `llm_api_key`, `conversation_mode`, `dictation_mode`, `continuous_dictation`, `read_notifications`. Claude is never called through a marketplace: `state.llm_policy()` refuses `bedrock` and `vertex` outright and allows `azure`/`foundry` only for first-party OpenAI deployments (`gpt-*`, `o<digit>*`); a refused config gets the local LLM (`qwen36-coder`) and loses that provider's key. gnome-speaks applies it again at each call (2026-11-17).
+**Standalone/LLM**: `llm_provider`, `llm_model`, `llm_api_key`, `conversation_mode`, `dictation_mode`, `continuous_dictation`, `read_notifications`. Claude is never called through a marketplace: `state.llm_policy()` refuses every provider that can host Claude under any name (`bedrock`, `vertex`, `azure`, `foundry`, `digitalocean`, `puter`, `openrouter`) and allows a Claude-named model on `anthropic` (direct) only; a refused config gets the local LLM (`qwen36-coder`) and loses that provider's key. gnome-speaks applies it again at each call (2026-11-17).
 
 ## Key Implementation Details
 
