@@ -180,21 +180,29 @@ def _normalise_phrase_list(value):
 
 # Claude is never called through a cloud marketplace: Bedrock, Vertex and Azure Foundry
 # bill it as Marketplace, which no credit covers (JP 2026-11-09). Claude goes through
-# teamclaude (or direct) only. A config naming a marketplace with a Claude model is
-# answered by the local LLM instead, and its key is not passed on: it was meant for that
-# marketplace, and the local provider would send it to the LAN server as a bearer.
-# gnome-speaks calls this at the moment it builds a request too, because a live prefs
-# edit reaches its CONFIG without passing through load_config().
+# teamclaude (or direct) only. A name cannot prove what a marketplace serves (a Foundry
+# deployment or a Bedrock inference profile can be called anything), so the rule is an
+# allowlist: Bedrock and Vertex are refused outright (this app has no other use for them),
+# and Azure/Foundry only for first-party OpenAI deployments (gpt-*, o<digit>*). A refused
+# config is answered by the local LLM and its key is not passed on. gnome-speaks calls
+# this at the moment it builds a request too, because a live prefs edit reaches its
+# CONFIG without passing through load_config().
 MARKETPLACE_PROVIDERS = frozenset({"bedrock", "vertex", "azure", "foundry"})
 LOCAL_LLM_FALLBACK = "qwen36-coder"
-_CLAUDE_MODEL = re.compile(r"claude|anthropic|opus|sonnet|haiku|fable|mythos", re.I)
+_FIRST_PARTY_AZURE = re.compile(r"^(gpt-|o[0-9])", re.I)
+_CLAUDE_WORD = re.compile(r"claude|anthropic", re.I)
 
 
 def llm_policy(provider, model, api_key=""):
     """Return (provider, model, api_key, refused) for one LLM call."""
-    if str(provider or "").strip().lower() in MARKETPLACE_PROVIDERS and _CLAUDE_MODEL.search(str(model or "")):
-        return "local", LOCAL_LLM_FALLBACK, "", True
-    return provider, model, api_key, False
+    p, m = str(provider or "").strip().lower(), str(model or "").strip()
+    if p in ("bedrock", "vertex"):
+        refused = True
+    elif p in ("azure", "foundry"):
+        refused = not _FIRST_PARTY_AZURE.match(m) or bool(_CLAUDE_WORD.search(m))
+    else:
+        refused = False
+    return ("local", LOCAL_LLM_FALLBACK, "", True) if refused else (provider, model, api_key, False)
 
 
 def load_config():
