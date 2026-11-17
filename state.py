@@ -178,12 +178,31 @@ def _normalise_phrase_list(value):
     return []
 
 
+# Claude is never called through a cloud marketplace: Bedrock, Vertex and Azure Foundry
+# bill it as Marketplace, which no credit covers (JP 2026-11-09). Claude goes through
+# teamclaude (or direct) only. A config naming a marketplace with a Claude model is
+# answered by the local LLM instead, and its key is not passed on: it was meant for that
+# marketplace, and the local provider would send it to the LAN server as a bearer.
+# gnome-speaks calls this at the moment it builds a request too, because a live prefs
+# edit reaches its CONFIG without passing through load_config().
+MARKETPLACE_PROVIDERS = frozenset({"bedrock", "vertex", "azure", "foundry"})
+LOCAL_LLM_FALLBACK = "qwen36-coder"
+_CLAUDE_MODEL = re.compile(r"claude|anthropic|opus|sonnet|haiku|fable|mythos", re.I)
+
+
+def llm_policy(provider, model, api_key=""):
+    """Return (provider, model, api_key, refused) for one LLM call."""
+    if str(provider or "").strip().lower() in MARKETPLACE_PROVIDERS and _CLAUDE_MODEL.search(str(model or "")):
+        return "local", LOCAL_LLM_FALLBACK, "", True
+    return provider, model, api_key, False
+
+
 def load_config():
     cfg = {}
     if os.path.exists(DEFAULTS_PATH):
         with open(DEFAULTS_PATH) as f:
             cfg = json.load(f)
-    return {
+    out = {
         "key": os.environ.get("AZURE_SPEECH_KEY") or cfg.get("key"),
         "region": os.environ.get("AZURE_SPEECH_REGION") or cfg.get("region", "westus2"),
         "voice": os.environ.get("AZURE_SPEECH_VOICE") or cfg.get("voice", "en-US-Ava:DragonHDLatestNeural"),
@@ -300,6 +319,12 @@ def load_config():
         # Audio file saving
         "save_audio_dir": cfg.get("save_audio_dir", None),  # auto-save all TTS to this dir
     }
+    prov, model, key, refused = llm_policy(out["llm_provider"], out["llm_model"], out["llm_api_key"])
+    if refused:
+        print(f"speech-to-cli: llm_provider {out['llm_provider']!r} with {out['llm_model']!r} refused "
+              f"(Claude is never called through a marketplace); using local {model}", file=sys.stderr)
+        out.update(llm_provider=prov, llm_model=model, llm_api_key=key)
+    return out
 
 
 def load_config_standalone(need_voice=False):
